@@ -68,7 +68,7 @@ class DAE(nn.Module):
             feature2 = self.bottle_up(z_out)
         else:
             print("NO Bottle_neck")
-            z = self.fc1(feature.view(-1, 1600))
+            z = self.fc1(feature.view(-1, 1600))  # TODO: decrease the value and move to config
             feature2 = F.relu(self.fc2(z))
             feature2 = feature2.view(-1, 100, 4, 4)  # B, C, H, W
         recon_x = self.decoder(feature2)
