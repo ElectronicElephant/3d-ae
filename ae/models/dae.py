@@ -60,7 +60,7 @@ class DAE(nn.Module):
             nn.Sigmoid())
 
     def forward(self, x):
-        feature = self.encoder(x)  # 32, 100, 2, 2, 2  # TODO: Figure out what happens
+        feature = self.encoder(x)  # 32, 100, 2, 2, 2
         if self.bottle_neck:
             z_out = self.bottle_down(feature)
             z = z_out  # need transpose

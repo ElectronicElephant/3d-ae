@@ -1,6 +1,6 @@
 model:
   name: dae
-  vector_length: 20
+  vector_length: 100
   bottle_neck: False
 data:
   type: npz
@@ -16,7 +16,7 @@ training:
   save_interval: 10000
   optimizer:
     name: 'sgd'
-    lr: 0.01
+    lr: 0.0001
     weight_decay: 0.0005
     momentum: 0.99
   augmentations:
@@ -28,13 +28,10 @@ training:
     max_iter: 200000
   resume:
 testing:
-  model_path: runs/dae_/1599/dae_coco_norm_64_400000_model.pkl
+  model_path: runs/dae/59761/dae_norm_mask_64_30000_model.pkl
   test_dataset: norm_mask_64
-  test_file: train.txt
-  img_h: 64
-  img_w: 64
-  path: D:/dataset
+  vis: True
   save_recon: True
   save_path: dae_res
-  batch_size: 1024
+  batch_size: 1
   n_workers: 1
