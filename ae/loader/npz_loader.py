@@ -6,11 +6,10 @@ from ae.augmentations.augmentations import ToTensor
 
 # TODO: @LightQuantum: Rewrite the whole bunch of dataloader in shapenet format
 class NPZLoader(data.Dataset):
-    def __init__(self, npz_path, array_name, ae_type="dae", is_transform=False, dim=32, augmentations=None,
+    def __init__(self, npz_path, array_name, ae_type="dae", dim=32, augmentations=None,
                  test_mode=False):
         self.npz_path = npz_path
         self.array_name = array_name
-        self.is_transform = is_transform
         self.augmentations = augmentations
         self.dim = dim if isinstance(dim, tuple) else (dim, dim, dim)
         self.ae_type = (ae_type == "dae")

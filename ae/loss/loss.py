@@ -3,7 +3,7 @@ import torch.nn.functional as F
 
 
 def dae_loss(input, target, weight=None, reduction='mean'):
-    loss = F.binary_cross_entropy(input, target, reduction=reduction)
+    loss = F.binary_cross_entropy(input, target, reduction=reduction, weight=weight)
     return loss
 
 

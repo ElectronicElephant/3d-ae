@@ -50,7 +50,6 @@ def generateShapeVector(cfg):
     v_loader = data_loader(
         data_path,
         array_name=cfg["data"]["array_name"],
-        is_transform=False,
         dim=cfg["data"]["dim"],
         test_mode=True
     )

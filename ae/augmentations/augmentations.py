@@ -38,8 +38,8 @@ class AddRandomNoise(object):
         self.sigma = sigma
 
     def __call__(self, img):
-        gauss = np.random.normal(self.mean, self.sigma, img.shape) * (255 * self.sigma * 2)
-        return (img + gauss).astype(np.uint8)
+        gauss = np.random.normal(self.mean, self.sigma, img.shape) * (self.sigma * 2)
+        return (img + gauss).clip(0, 1)
 
 
 class ToTensor(object):

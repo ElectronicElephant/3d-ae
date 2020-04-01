@@ -43,7 +43,6 @@ def train(cfg, writer, logger):
         data_path,
         array_name=cfg["data"]["array_name"],
         ae_type=cfg["model"]["name"],
-        is_transform=True,
         dim=cfg["data"]["dim"],
         augmentations=data_aug,
     )
@@ -110,9 +109,9 @@ def train(cfg, writer, logger):
             if cfg["model"]["name"] == "vae":
                 recon_images, _, mu, logvar = model(images)
                 loss = loss_fn(input=recon_images, target=target, mu=mu, logvar=logvar)
-            else:
+            else:  # dae
                 recon_images, _ = model(images)
-                loss = loss_fn(input=recon_images, target=target)
+                loss = loss_fn(input=recon_images, target=target, weight=target+0.1)
             loss.backward()
             optimizer.step()
 
@@ -127,7 +126,6 @@ def train(cfg, writer, logger):
                     time_meter.avg / cfg["training"]["batch_size"],
                 )
 
-                print(print_str)
                 logger.info(print_str)
                 writer.add_scalar("loss/train_loss", loss.item(), i + 1)
                 time_meter.reset()
