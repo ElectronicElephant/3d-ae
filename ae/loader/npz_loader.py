@@ -2,7 +2,7 @@ from torchvision import transforms
 
 from torch.utils import data
 import numpy as np
-
+from ae.augmentations.augmentations import ToTensor
 
 # TODO: @LightQuantum: Rewrite the whole bunch of dataloader in shapenet format
 class NPZLoader(data.Dataset):
@@ -20,18 +20,14 @@ class NPZLoader(data.Dataset):
         self.samples = np.load(npz_path)
         if array_name:
             self.samples = self.samples[array_name]
-        self.tf = transforms.Compose(
-            [
-                transforms.ToTensor(),
-            ]
-        )
+        self.tf = ToTensor()
 
     def __len__(self):
         return len(self.samples)
 
     # TODO: check output dim - SHOULD be [N, C, D, H, W]
     def __getitem__(self, index):
-        sample = self.samples[index]
+        sample = [self.samples[index].astype(np.float)]
 
         if self.test_mode:
             sample = self.transform(sample)

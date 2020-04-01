@@ -62,15 +62,13 @@ class DAE(nn.Module):
     def forward(self, x):
         feature = self.encoder(x)
         if self.bottle_neck:
-            print("Bottle_neck")
             z_out = self.bottle_down(feature)
             z = z_out  # need transpose
             feature2 = self.bottle_up(z_out)
         else:
-            print("NO Bottle_neck")
-            z = self.fc1(feature.view(-1, 1600))  # TODO: decrease the value and move to config
+            z = self.fc1(feature.view(-1, 1024))  # TODO: decrease the value and move to config
             feature2 = F.relu(self.fc2(z))
-            feature2 = feature2.view(-1, 100, 4, 4)  # B, C, H, W
+            feature2 = feature2.view(-1, 16, 4, 4, 4)  # B, C, H, W
         recon_x = self.decoder(feature2)
         return recon_x, z
 

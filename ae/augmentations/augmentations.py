@@ -1,12 +1,14 @@
 import numpy as np
 from PIL import Image
+import torch
 
 
 class Compose(object):
-    def __init__(self, np_aug=None, pil_aug=None):
+    def __init__(self, np_aug=None, pil_aug=None, to_pil=False):
         self.pil_augmentations = pil_aug
         self.np_augmentations = np_aug
         self.pil = True
+        self.to_pil = to_pil
 
     def __call__(self, img):
         # first do augmentations implemented by PIL
@@ -24,7 +26,7 @@ class Compose(object):
                 img = a(img)
 
         # convert back to PIL
-        if not self.pil:
+        if self.to_pil and not self.pil:
             img = Image.fromarray(img)
 
         return img
@@ -38,3 +40,11 @@ class AddRandomNoise(object):
     def __call__(self, img):
         gauss = np.random.normal(self.mean, self.sigma, img.shape) * (255 * self.sigma * 2)
         return (img + gauss).astype(np.uint8)
+
+
+class ToTensor(object):
+    def __init__(self):
+        pass
+
+    def __call__(self, x):
+        return torch.tensor(x).float()
