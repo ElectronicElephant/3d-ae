@@ -1,11 +1,11 @@
 model:
   name: dae
-  vector_length: 64
+  vector_length: 128
   bottle_neck: False
 data:
   type: npz
   array_name: arr_0.npy
-  dataset: norm_mask_64
+  dataset: shapenet_all
   dim: 32
   path: D:/CV/3d_pca/voxels.npz
 training:
@@ -13,7 +13,7 @@ training:
   batch_size: 32
   n_workers: 1
   print_interval: 50
-  save_interval: 10000
+  save_interval: 1000
   optimizer:
     name: 'sgd'
     lr: 0.01
@@ -29,7 +29,7 @@ training:
   resume:
 testing:
   model_path: runs/dae/59761/dae_norm_mask_64_30000_model.pkl
-  test_dataset: norm_mask_64
+  test_dataset: shapenet_all
   vis: True
   save_recon: True
   save_path: dae_res
