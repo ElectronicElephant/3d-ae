@@ -38,24 +38,24 @@ class DAE(nn.Module):
             self.bottle_up = nn.Sequential(
                 nn.ReLU(),
                 nn.Conv3d(vector_length, 400, 1, 1, 0),
-                nn.Upsample(scale_factor=2, mode='bilinear'),
+                nn.Upsample(scale_factor=2, mode='trilinear'),
                 nn.Conv3d(400, 200, 3, 1, 1),  # 2 * 2
                 nn.ReLU(),
-                nn.Upsample(scale_factor=2, mode='bilinear'),
+                nn.Upsample(scale_factor=2, mode='trilinear'),
                 nn.ReLU())
-        self.fc1 = nn.Linear(1600, vector_length)
-        self.fc2 = nn.Linear(vector_length, 1600)
+        self.fc1 = nn.Linear(1024, vector_length)
+        self.fc2 = nn.Linear(vector_length, 1024)
         self.decoder = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='bilinear'),
+            nn.Upsample(scale_factor=2, mode='trilinear'),
             nn.Conv3d(100, 50, 3, 1, 1),
             nn.ReLU(),
-            nn.Upsample(scale_factor=2, mode='bilinear'),
+            nn.Upsample(scale_factor=2, mode='trilinear'),
             nn.Conv3d(50, 20, 3, 1, 1),
             nn.ReLU(),
-            nn.Upsample(scale_factor=2, mode='bilinear'),
+            nn.Upsample(scale_factor=2, mode='trilinear'),
             nn.Conv3d(20, 10, 3, 1, 1),
             nn.ReLU(),
-            nn.Upsample(scale_factor=2, mode='bilinear'),
+            nn.Upsample(scale_factor=2, mode='trilinear'),
             nn.Conv3d(10, 1, 3, 1, 1),
             nn.Sigmoid())
 
@@ -68,7 +68,7 @@ class DAE(nn.Module):
         else:
             z = self.fc1(feature.view(-1, 1024))  # TODO: decrease the value and move to config
             feature2 = F.relu(self.fc2(z))
-            feature2 = feature2.view(-1, 16, 4, 4, 4)  # B, C, H, W
+            feature2 = feature2.view(-1, 16, 4, 4, 4)  # B, C, D, H, W
         recon_x = self.decoder(feature2)
         return recon_x, z
 
