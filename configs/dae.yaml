@@ -3,10 +3,11 @@ model:
   vector_length: 20
   bottle_neck: False
 data:
+  type: npz
+  array_name: arr_0.npy
   dataset: norm_mask_64
   train_file: train.txt
-  img_h: 64
-  img_w: 64
+  dim: 32
   path: D:/dataset
 training:
   train_iters: 500000

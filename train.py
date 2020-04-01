@@ -36,15 +36,15 @@ def train(cfg, writer, logger):
     data_aug = get_composed_augmentations(augmentations)
 
     # setup dataloader
-    data_loader = get_loader("basic")
+    data_loader = get_loader(cfg["data"]["type"])
     data_path = cfg["data"]["path"]
 
     t_loader = data_loader(
         data_path,
-        is_transform=True,
-        train_file=cfg["data"]["train_file"],
-        img_size=(cfg["data"]["img_h"], cfg["data"]["img_w"]),
+        array_name=cfg["data"]["array_name"],
         ae_type=cfg["model"]["name"],
+        is_transform=True,
+        dim=cfg["data"]["dim"],
         augmentations=data_aug,
     )
 
