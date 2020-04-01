@@ -78,9 +78,7 @@ def generateShapeVector(cfg):
             source = data[0].detach().cpu().numpy().reshape(32, 32, 32)
             dest = recon_image.detach().cpu().numpy().reshape(32, 32, 32)
 
-            print(np.unique(dest))
-
-            plot(source, dest > 0.1)
+            plot(source, dest > 0.5)
 
 
 if __name__ == "__main__":
