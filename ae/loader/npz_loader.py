@@ -1,10 +1,10 @@
 from torchvision import transforms
-from ae.loader.basic_loader import BasicLoader
 
+from torch.utils import data
 import numpy as np
 
 
-class NPZLoader(BasicLoader):
+class NPZLoader(data.Dataset):
     def __init__(self, npz_path, array_name, ae_type="dae", is_transform=False, dim=32, augmentations=None,
                  test_mode=False):
         self.npz_path = npz_path
