@@ -14,32 +14,32 @@ class DAE(nn.Module):
         super(DAE, self).__init__()
         self.bottle_neck = bottle_neck
         self.encoder = nn.Sequential(
-            nn.Conv2d(in_channels=1, out_channels=10, kernel_size=3, stride=1, padding=1),
+            nn.Conv3d(in_channels=1, out_channels=10, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),  # TODO: Try leaky ReLu
+            nn.MaxPool3d(2),  # 32 * 32
+            nn.Conv3d(10, 20, 3, 1, 1),
             nn.ReLU(),
-            nn.MaxPool2d(2),  # 32 * 32
-            nn.Conv2d(10, 20, 3, 1, 1),
+            nn.MaxPool3d(2),  # 16 * 16
+            nn.Conv3d(20, 50, 3, 1, 1),
             nn.ReLU(),
-            nn.MaxPool2d(2),  # 16 * 16
-            nn.Conv2d(20, 50, 3, 1, 1),
+            nn.MaxPool3d(2),  # 8 * 8
+            nn.Conv3d(50, 100, 3, 1, 1),
             nn.ReLU(),
-            nn.MaxPool2d(2),  # 8 * 8
-            nn.Conv2d(50, 100, 3, 1, 1),
-            nn.ReLU(),
-            nn.MaxPool2d(2))  # 4 * 4
+            nn.MaxPool3d(2))  # 4 * 4
         if self.bottle_neck:
             self.bottle_down = nn.Sequential(
-                nn.Conv2d(100, 200, 3, 1, 1),
+                nn.Conv3d(100, 200, 3, 1, 1),
                 nn.ReLU(),
-                nn.MaxPool2d(2),  # 2 * 2
-                nn.Conv2d(200, 400, 3, 1, 1),
+                nn.MaxPool3d(2),  # 2 * 2
+                nn.Conv3d(200, 400, 3, 1, 1),
                 nn.ReLU(),
-                nn.MaxPool2d(2),  # 1 * 1
-                nn.Conv2d(400, vector_length, 1, 1, 0))
+                nn.MaxPool3d(2),  # 1 * 1
+                nn.Conv3d(400, vector_length, 1, 1, 0))
             self.bottle_up = nn.Sequential(
                 nn.ReLU(),
-                nn.Conv2d(vector_length, 400, 1, 1, 0),
+                nn.Conv3d(vector_length, 400, 1, 1, 0),
                 nn.Upsample(scale_factor=2, mode='bilinear'),
-                nn.Conv2d(400, 200, 3, 1, 1),  # 2 * 2
+                nn.Conv3d(400, 200, 3, 1, 1),  # 2 * 2
                 nn.ReLU(),
                 nn.Upsample(scale_factor=2, mode='bilinear'),
                 nn.ReLU())
@@ -47,22 +47,20 @@ class DAE(nn.Module):
         self.fc2 = nn.Linear(vector_length, 1600)
         self.decoder = nn.Sequential(
             nn.Upsample(scale_factor=2, mode='bilinear'),
-            nn.Conv2d(100, 50, 3, 1, 1),
+            nn.Conv3d(100, 50, 3, 1, 1),
             nn.ReLU(),
             nn.Upsample(scale_factor=2, mode='bilinear'),
-            nn.Conv2d(50, 20, 3, 1, 1),
+            nn.Conv3d(50, 20, 3, 1, 1),
             nn.ReLU(),
             nn.Upsample(scale_factor=2, mode='bilinear'),
-            nn.Conv2d(20, 10, 3, 1, 1),
+            nn.Conv3d(20, 10, 3, 1, 1),
             nn.ReLU(),
             nn.Upsample(scale_factor=2, mode='bilinear'),
-            nn.Conv2d(10, 1, 3, 1, 1),
+            nn.Conv3d(10, 1, 3, 1, 1),
             nn.Sigmoid())
 
     def forward(self, x):
-        print(f"input x {x.size()}")
         feature = self.encoder(x)
-        print(f"feature {feature.size()}")
         if self.bottle_neck:
             print("Bottle_neck")
             z_out = self.bottle_down(feature)

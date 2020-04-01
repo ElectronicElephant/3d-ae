@@ -29,6 +29,7 @@ class NPZLoader(data.Dataset):
     def __len__(self):
         return len(self.samples)
 
+    # TODO: check output dim - SHOULD be [N, C, D, H, W]
     def __getitem__(self, index):
         sample = self.samples[index]
 
