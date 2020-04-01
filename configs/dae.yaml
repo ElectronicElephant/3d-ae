@@ -1,0 +1,40 @@
+model:
+  name: dae
+  vector_length: 20
+  bottle_neck: False
+data:
+  dataset: norm_mask_64
+  train_file: train.txt
+  img_h: 64
+  img_w: 64
+  path: D:/dataset
+training:
+  train_iters: 500000
+  batch_size: 128
+  n_workers: 16
+  print_interval: 50
+  save_interval: 10000
+  optimizer:
+    name: 'sgd'
+    lr: 0.01
+    weight_decay: 0.0005
+    momentum: 0.99
+  augmentations:
+    noise: 0.05
+  loss:
+    name: dae
+  lr_schedule:
+    name: poly_lr
+    max_iter: 200000
+  resume:
+testing:
+  model_path: runs/dae_/1599/dae_coco_norm_64_400000_model.pkl
+  test_dataset: norm_mask_64
+  test_file: train.txt
+  img_h: 64
+  img_w: 64
+  path: D:/dataset
+  save_recon: True
+  save_path: dae_res
+  batch_size: 1024
+  n_workers: 1
