@@ -4,6 +4,7 @@ from torch.utils import data
 import numpy as np
 
 
+# TODO: @LightQuantum: Rewrite the whole bunch of dataloader in shapenet format
 class NPZLoader(data.Dataset):
     def __init__(self, npz_path, array_name, ae_type="dae", is_transform=False, dim=32, augmentations=None,
                  test_mode=False):
