@@ -43,8 +43,8 @@ class DAE(nn.Module):
                 nn.ReLU(),
                 nn.Upsample(scale_factor=2, mode='trilinear'),
                 nn.ReLU())
-        self.fc1 = nn.Linear(1024, vector_length)
-        self.fc2 = nn.Linear(vector_length, 1024)
+        self.fc1 = nn.Linear(800, vector_length)
+        self.fc2 = nn.Linear(vector_length, 800)
         self.decoder = nn.Sequential(
             nn.Upsample(scale_factor=2, mode='trilinear'),
             nn.Conv3d(100, 50, 3, 1, 1),
@@ -60,15 +60,15 @@ class DAE(nn.Module):
             nn.Sigmoid())
 
     def forward(self, x):
-        feature = self.encoder(x)
+        feature = self.encoder(x)  # 32, 100, 2, 2, 2  # TODO: Figure out what happens
         if self.bottle_neck:
             z_out = self.bottle_down(feature)
             z = z_out  # need transpose
             feature2 = self.bottle_up(z_out)
         else:
-            z = self.fc1(feature.view(-1, 1024))  # TODO: decrease the value and move to config
+            z = self.fc1(feature.view(-1, 800))  # TODO: decrease the value and move to config
             feature2 = F.relu(self.fc2(z))
-            feature2 = feature2.view(-1, 16, 4, 4, 4)  # B, C, D, H, W
+            feature2 = feature2.view(-1, 100, 2, 2, 2)  # B, C, D, H, W
         recon_x = self.decoder(feature2)
         return recon_x, z
 
