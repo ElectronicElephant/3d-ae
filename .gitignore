@@ -133,3 +133,6 @@ dmypy.json
 
 # checkpoints
 runs
+
+# Data
+*.npz

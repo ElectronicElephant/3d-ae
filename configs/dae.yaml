@@ -28,7 +28,7 @@ training:
     max_iter: 200000
   resume:
 testing:
-  model_path: runs/dae/11904/dae_shapenet_all_2000_model.pkl
+  model_path: runs/dae/25597/dae_shapenet_all_211000_model.pkl
   test_dataset: shapenet_all
   vis: True
   save_recon: True

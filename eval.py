@@ -14,9 +14,9 @@ from ae.utils import convert_state_dict
 
 
 def plot(array1, array2=None):
-    r, g, b = np.indices((33,33,33)) / 32.0
+    r, g, b = np.indices((33, 33, 33)) / 32.0
 
-    fig = plt.figure()
+    fig = plt.figure(figsize=(10, 5))
 
     ax = fig.add_subplot(121, projection='3d')
     ax.voxels(r, g, b, array1, linewidth=0.5)
@@ -57,7 +57,7 @@ def generateShapeVector(cfg):
     val_loader = data.DataLoader(
         v_loader, batch_size=cfg["testing"]["batch_size"],
         num_workers=cfg["testing"]["n_workers"],
-        shuffle=False,
+        shuffle=True,
     )
 
     # Setup Model
