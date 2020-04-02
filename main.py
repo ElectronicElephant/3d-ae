@@ -58,7 +58,7 @@ class DenoisingAutoEncoder(pl.LightningModule):
         return DataLoader(self.train_dataset,
                           batch_size=64,
                           shuffle=True,
-                          num_workers=64)
+                          num_workers=4)
 
     def configure_optimizers(self):
         # return torch.optim.SGD(self.parameters(),
@@ -72,7 +72,7 @@ class DenoisingAutoEncoder(pl.LightningModule):
 
         loss = F.binary_cross_entropy(recon, image, reduction='mean', weight=None)
 
-        return {'BCE': loss}
+        return {'loss': loss, 'max': recon.max()}
 
 
 if __name__ == '__main__':
