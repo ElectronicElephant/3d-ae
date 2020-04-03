@@ -197,12 +197,6 @@ if __name__ == '__main__':
         "conv_layers": conv_layers_grid
     }
 
-    ckpt_cb = ModelCheckpoint(
-        filepath="".join(["ckpt/", datetime.datetime.now().isoformat(), "/{epoch}"]),
-        save_top_k=-1,
-        period=5
-    )
-
     search_params = list(searcher(hparams_grid))
     for idx, hparams in enumerate(search_params):
         print(f"Progress: {idx}/{len(search_params)}")
@@ -210,6 +204,13 @@ if __name__ == '__main__':
         comet_logger = CometLogger(**conf["comet"])
         model = DenoisingAutoEncoder(**conf["data"], hparams=hparams)
         # model = DenoisingAutoEncoder(hparams=hparams, data_path='voxel.npz', array_name="arr_0")
+
+        ckpt_cb = ModelCheckpoint(
+            filepath="".join(["ckpt/", datetime.datetime.now().isoformat(), "/{epoch}"]),
+            save_top_k=-1,
+            period=5
+        )
+
         trainer = Trainer(gpus=1, logger=comet_logger, max_epochs=20, checkpoint_callback=ckpt_cb,
                           num_sanity_val_steps=1, check_val_every_n_epoch=5)
         trainer.fit(model)
