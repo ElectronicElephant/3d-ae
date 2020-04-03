@@ -1,82 +1,136 @@
+import json
+from typing import Tuple
+
+import matplotlib.pyplot as plt
 import pytorch_lightning as pl
 import torch
 from pytorch_lightning import Trainer
-from torch import nn
+from pytorch_lightning.loggers import CometLogger
+from torch import FloatTensor, nn
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 
-from data import DAENumpyVoxelDataset
+from data import NumpyVoxelDataset, PickerDataset
+from visualizer import plot
 
 
 class DenoisingAutoEncoder(pl.LightningModule):
-    def __init__(self, vector_length, dim, data_path, array_name):
-        super(DenoisingAutoEncoder, self).__init__()
+    logger: CometLogger
+
+    def __init__(self, hparams, data_path, array_name):
+        super().__init__()
+
+        self.hparams = hparams
+        self.vector_length = self.hparams["vector_length"]
+        self.dim = self.hparams["dim"]
+        self.lr = self.hparams["lr"]
+        self.bs = self.hparams["batch_size"]
+        self.normal_mean = self.hparams["normal_mean"]
+        self.normal_sigma = self.hparams["normal_sigma"]
+        self.threshold = self.hparams["threshold"]
+
         self.encoder = nn.Sequential(
-            nn.Conv3d(in_channels=1, out_channels=10, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),  # TODO: Try leaky ReLu
-            nn.MaxPool3d(2),  # 1 / 2
-            nn.Conv3d(10, 20, 3, 1, 1),
-            nn.ReLU(),
-            nn.MaxPool3d(2),  # 1 / 4
-            nn.Conv3d(20, 50, 3, 1, 1),
-            nn.ReLU(),
-            nn.MaxPool3d(2),  # 1 / 8
-            nn.Conv3d(50, 100, 3, 1, 1),
-            nn.ReLU(),
-            nn.MaxPool3d(2)  # 1 / 16
+            nn.Conv3d(1, 15, 2, 2),
+            nn.LeakyReLU(),
+            nn.Conv3d(15, 50, 2, 2),
+            nn.LeakyReLU(),
+            nn.Conv3d(50, 100, 2, 2),
+            nn.LeakyReLU(),
         )
         # TODO: INPUT SIZE and Length! as hyper-parameters
-        self.fc1 = nn.Linear(800, vector_length)
-        self.fc2 = nn.Linear(vector_length, 800)
+        self.fc1 = nn.Linear(100 * 4 * 4 * 4, self.vector_length)
+        self.fc2 = nn.Linear(self.vector_length, 100 * 4 * 4 * 4)
         self.decoder = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='trilinear'),
-            nn.Conv3d(100, 50, 3, 1, 1),
-            nn.ReLU(),
-            nn.Upsample(scale_factor=2, mode='trilinear'),
-            nn.Conv3d(50, 20, 3, 1, 1),
-            nn.ReLU(),
-            nn.Upsample(scale_factor=2, mode='trilinear'),
-            nn.Conv3d(20, 10, 3, 1, 1),
-            nn.ReLU(),
-            nn.Upsample(scale_factor=2, mode='trilinear'),
-            nn.Conv3d(10, 1, 3, 1, 1),
+            nn.ConvTranspose3d(100, 50, 2, 2),
+            nn.LeakyReLU(),
+            nn.ConvTranspose3d(50, 15, 2, 2),
+            nn.LeakyReLU(),
+            nn.ConvTranspose3d(15, 1, 2, 2),
             nn.Sigmoid()
         )
 
         # Data
-        self.train_dataset = DAENumpyVoxelDataset(data_path, dim, array_name)
+        self.train_dataset = NumpyVoxelDataset(data_path, self.dim, array_name)
+        self.val_dataset = PickerDataset(self.train_dataset, ids=[10, 513, 10403, 20303, 40013])
 
     def forward(self, x):
         feature = self.encoder(x)  # 32, 100, 2, 2, 2
-        z = self.fc1(feature.view(-1, 800))  # TODO: 800 - INPUT SIZE
+        z = self.fc1(feature.view(-1, 100 * 4 * 4 * 4))  # TODO: 800 - INPUT SIZE
         feature2 = F.relu(self.fc2(z))
-        feature2 = feature2.view(-1, 100, 2, 2, 2)  # B, C, D, H, W  TODO: INPUT SIZE
+        feature2 = feature2.view(-1, 100, 4, 4, 4)  # B, C, D, H, W  TODO: INPUT SIZE
         recon_x = self.decoder(feature2)
         return recon_x, z
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset,
-                          batch_size=64,
+                          batch_size=self.bs,
                           shuffle=True,
-                          num_workers=4)
+                          num_workers=4,
+                          pin_memory=True)
+
+    def val_dataloader(self):
+        return DataLoader(self.val_dataset, batch_size=len(self.val_dataset), shuffle=False, pin_memory=True)
 
     def configure_optimizers(self):
         # return torch.optim.SGD(self.parameters(),
         #                        lr=0.001, momentum=0.99, weight_decay=0.0005)
-        return torch.optim.Adam(self.parameters(), lr=1e-3)
+        return torch.optim.Adam(self.parameters(), lr=self.lr)
 
-    def training_step(self, batch, batch_idx):
-        image, noised = batch
+    def _step(self, image: FloatTensor, noise: bool = True) -> Tuple[FloatTensor, FloatTensor]:
+        if noise:
+            # noinspection PyArgumentList
+            gauss = FloatTensor(*image.shape).to(image.device).normal_(mean=self.normal_mean, std=self.normal_sigma)
+            noised = image + gauss
+        else:
+            noised = image
+
         # TODO: Check Shape
         recon, _ = self(noised)
 
+        return image, recon
+
+    def training_step(self, batch, batch_idx):
+        image, recon = self._step(batch)
+
         loss = F.binary_cross_entropy(recon, image, reduction='mean', weight=None)
 
-        return {'loss': loss, 'max': recon.max()}
+        _max = recon.max()
+        logs = {'loss': loss, 'max': _max}
+        return {**logs, "log": logs}
+
+    def validation_step(self, batch, batch_idx):
+        image, recon = self._step(batch, noise=False)
+
+        loss = F.binary_cross_entropy(recon, image, reduction='mean', weight=None)
+
+        srcs = image.detach().cpu().numpy()
+        dests = recon.detach().cpu().numpy()
+
+        for idx, (src, dest) in enumerate(zip(srcs, dests)):
+            src.resize(([self.dim] * 3))
+            dest.resize(([self.dim] * 3))
+            plt.close()
+            plot(src, dest > self.threshold)
+            self.logger.experiment.log_figure(step=self.current_epoch, figure_name=f"figure_{idx}")
+
+        logs = {"val_loss": loss}
+        return {**logs, "log": logs}
 
 
 if __name__ == '__main__':
-    model = DenoisingAutoEncoder(data_path='voxels.npz', array_name='arr_0.npy',
-                                 dim=32, vector_length=128)
-    trainer = Trainer(gpus=1)
+    with open("tokens.json", mode="r") as f:
+        conf = json.load(f)
+    comet_logger = CometLogger(**conf["comet"])
+    hparams = {
+        "dim": 32,
+        "vector_length": 128,
+        "normal_mean": 0,
+        "normal_sigma": 0.05,
+        "lr": 1e-3,
+        "batch_size": 128,
+        "threshold": 0.3
+    }
+    model = DenoisingAutoEncoder(**conf["data"], hparams=hparams)
+    # model = DenoisingAutoEncoder(hparams=hparams, data_path='voxel.npz', array_name="arr_0")
+    trainer = Trainer(gpus=1, logger=comet_logger)
     trainer.fit(model)

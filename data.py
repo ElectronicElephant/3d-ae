@@ -1,8 +1,12 @@
 import os
 
 import numpy as np
+from numpy import ndarray
+from typing import List
 import torch
 from torch.utils import data
+
+from functools import lru_cache
 
 
 # TODO: @LightQuantum: Rewrite the whole bunch of dataloader in shapenet format
@@ -14,7 +18,7 @@ class NumpyVoxelDataset(data.Dataset):
 
         # Dataset
         if not os.path.exists(self.data_path):  # TODO: Move to config!
-            raise RuntimeError('File %s does not exist!' % self.data_path)
+            raise FileNotFoundError('File %s does not exist!' % self.data_path)
 
         self.samples = np.load(data_path)
         if array_name:
@@ -30,8 +34,25 @@ class NumpyVoxelDataset(data.Dataset):
     def __len__(self):
         return len(self.samples)
 
-    def __getitem__(self, index):
-        return [self.samples[index].astype(np.float)]  # C, D, H, W
+    @lru_cache(None)
+    def __getitem__(self, index) -> torch.FloatTensor:
+        # noinspection PyArgumentList
+        return torch.FloatTensor([self.samples[index].astype(np.float)])  # C, D, H, W
+
+
+class PickerDataset(data.Dataset):
+    def __init__(self, base_set: data.Dataset, ids: List[int]):
+        self.base_set = base_set
+        if max(ids) >= len(self.base_set):
+            raise ValueError("Index outbound.")
+        self.ids = ids
+
+    def __len__(self):
+        return len(self.ids)
+
+    @lru_cache(maxsize=None)
+    def __getitem__(self, item):
+        return self.base_set[self.ids[item]]
 
 
 class DAENumpyVoxelDataset(NumpyVoxelDataset):
