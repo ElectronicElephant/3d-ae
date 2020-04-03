@@ -38,7 +38,7 @@ def plot_volume(array: np.ndarray):
         value=array.flatten(),
         isomin=0,
         isomax=1,
-        opacity=0.1,
+        opacity=0.5,
         opacityscale="max",
         surface_count=5
     ))
