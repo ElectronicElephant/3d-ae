@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader
 
 from data import NumpyVoxelDataset, PickerDataset
 from utils import get_free_gpu, searcher, validate_conv
-from visualizer import plot
+from visualizer import plot, plot_volume
 
 
 class DenoisingAutoEncoder(pl.LightningModule):
@@ -99,6 +99,9 @@ class DenoisingAutoEncoder(pl.LightningModule):
     def val_dataloader(self):
         return DataLoader(self.val_dataset, batch_size=len(self.val_dataset), shuffle=False, pin_memory=True)
 
+    def test_dataloader(self):
+        return DataLoader(self.val_dataset, batch_size=len(self.val_dataset), shuffle=False)
+
     def configure_optimizers(self):
         # return torch.optim.SGD(self.parameters(),
         #                        lr=0.001, momentum=0.99, weight_decay=0.0005)
@@ -143,6 +146,15 @@ class DenoisingAutoEncoder(pl.LightningModule):
 
         logs = {"val_loss": loss}
         return {**logs, "log": logs}
+
+    def test_step(self, batch, batch_idx):
+        image, recon = self._step(batch, noise=False)
+
+        dests = recon.detach().cpu().numpy()
+
+        for dest in dests:
+            html = plot_volume(dest)
+            self.logger.experiment.log_html(html)
 
 
 if __name__ == '__main__':
