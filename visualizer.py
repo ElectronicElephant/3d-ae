@@ -1,6 +1,8 @@
-import numpy as np
-import matplotlib.pyplot as plt
 from io import BytesIO
+
+import matplotlib.pyplot as plt
+import numpy as np
+
 
 # from mpl_toolkits.mplot3d import Axes3D
 
@@ -14,6 +16,7 @@ def plot_as_f(*args, **kwargs):
     fp.seek(0)
 
     return fp
+
 
 def plot(array1, array2=None):
     r, g, b = np.indices((33, 33, 33)) / 32.0

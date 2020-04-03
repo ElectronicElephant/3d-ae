@@ -1,12 +1,10 @@
 import os
+from functools import lru_cache
+from typing import List
 
 import numpy as np
-from numpy import ndarray
-from typing import List
 import torch
 from torch.utils import data
-
-from functools import lru_cache
 
 
 # TODO: @LightQuantum: Rewrite the whole bunch of dataloader in shapenet format

@@ -1,63 +1,91 @@
+import datetime
 import json
+import os
+from argparse import Namespace
 from typing import Tuple
 
 import matplotlib.pyplot as plt
 import pytorch_lightning as pl
 import torch
 from pytorch_lightning import Trainer
+from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import CometLogger
 from torch import FloatTensor, nn
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 
 from data import NumpyVoxelDataset, PickerDataset
+from utils import get_free_gpu, searcher, validate_conv
 from visualizer import plot
 
 
 class DenoisingAutoEncoder(pl.LightningModule):
     logger: CometLogger
 
-    def __init__(self, hparams, data_path, array_name):
+    def __init__(self, hparams: dict, data_path: str, array_name: str):
         super().__init__()
 
-        self.hparams = hparams
-        self.vector_length = self.hparams["vector_length"]
-        self.dim = self.hparams["dim"]
-        self.lr = self.hparams["lr"]
-        self.bs = self.hparams["batch_size"]
-        self.normal_mean = self.hparams["normal_mean"]
-        self.normal_sigma = self.hparams["normal_sigma"]
-        self.threshold = self.hparams["threshold"]
+        self.hparams = Namespace(**hparams)
+        self.vector_length = self.hparams.vector_length
+        self.dim = self.hparams.dim
+        self.lr = self.hparams.lr
+        self.bs = self.hparams.batch_size
+        self.normal_mean = self.hparams.normal_mean
+        self.normal_sigma = self.hparams.normal_sigma
+        self.threshold = self.hparams.threshold
+        self.conv_layers = self.hparams.conv_layers
+
+        self.conv_size = validate_conv(self.dim, self.conv_layers)
+        self.conv_channel = self.conv_layers[-1][1]
+        if not self.conv_size:
+            raise RuntimeError("Conv layers not aligned.")
 
         self.encoder = nn.Sequential(
-            nn.Conv3d(1, 15, 2, 2),
-            nn.LeakyReLU(),
-            nn.Conv3d(15, 50, 2, 2),
-            nn.LeakyReLU(),
-            nn.Conv3d(50, 100, 2, 2),
-            nn.LeakyReLU(),
+            # Example:
+            # conv_layers=((1, 10, 2, 2, 0), (10, 20, 2, 2, 0))
+            # nn.Sequential(
+            #   nn.Conv3d(1, 10, 2, 2, 0),
+            #   nn.LeakyRelu(),
+            #   nn.Conv3d(10, 20, 2, 2, 0),
+            #   nn.LeakyRelu()
+            # )
+            *(layer for layers in ((
+                nn.Conv3d(*conv_layer),
+                nn.LeakyReLU()
+            ) for conv_layer in self.conv_layers)
+              for layer in layers)
         )
-        # TODO: INPUT SIZE and Length! as hyper-parameters
-        self.fc1 = nn.Linear(100 * 4 * 4 * 4, self.vector_length)
-        self.fc2 = nn.Linear(self.vector_length, 100 * 4 * 4 * 4)
+
+        self.fc1 = nn.Linear(pow(self.conv_size, 3) * self.conv_channel, self.vector_length)
+        self.fc2 = nn.Linear(self.vector_length, pow(self.conv_size, 3) * self.conv_channel)
+
         self.decoder = nn.Sequential(
-            nn.ConvTranspose3d(100, 50, 2, 2),
-            nn.LeakyReLU(),
-            nn.ConvTranspose3d(50, 15, 2, 2),
-            nn.LeakyReLU(),
-            nn.ConvTranspose3d(15, 1, 2, 2),
+            *(layer for layers in ((
+                nn.ConvTranspose3d(conv_layer[1], conv_layer[0], *conv_layer[2:]),
+                nn.LeakyReLU()
+            ) for conv_layer in self.conv_layers[:0:-1])
+              for layer in layers),
+            nn.ConvTranspose3d(self.conv_layers[0][1], self.conv_layers[0][0], *self.conv_layers[0][2:]),
             nn.Sigmoid()
         )
 
         # Data
         self.train_dataset = NumpyVoxelDataset(data_path, self.dim, array_name)
-        self.val_dataset = PickerDataset(self.train_dataset, ids=[10, 513, 10403, 20303, 40013])
+        self.val_dataset = PickerDataset(self.train_dataset, ids=[10, 513, 2013, 10403, 20303, 40013])
+
+    def prepare_data(self):
+        self.logger.experiment.set_model_graph("\n".join((str(layer) for layer in (
+            self.encoder,
+            self.fc1,
+            self.fc2,
+            self.decoder
+        ))))
 
     def forward(self, x):
-        feature = self.encoder(x)  # 32, 100, 2, 2, 2
-        z = self.fc1(feature.view(-1, 100 * 4 * 4 * 4))  # TODO: 800 - INPUT SIZE
-        feature2 = F.relu(self.fc2(z))
-        feature2 = feature2.view(-1, 100, 4, 4, 4)  # B, C, D, H, W  TODO: INPUT SIZE
+        feature = self.encoder(x)
+        z = self.fc1(feature.flatten(1))
+        feature2 = F.leaky_relu(self.fc2(z))
+        feature2 = feature2.view(-1, self.conv_channel, *([self.conv_size] * 3))
         recon_x = self.decoder(feature2)
         return recon_x, z
 
@@ -118,19 +146,59 @@ class DenoisingAutoEncoder(pl.LightningModule):
 
 
 if __name__ == '__main__':
+    CUDA_DEVICES = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if CUDA_DEVICES:
+        gpus = [CUDA_DEVICES.split(",")]
+    else:
+        gpus = [get_free_gpu()]
+
     with open("tokens.json", mode="r") as f:
         conf = json.load(f)
-    comet_logger = CometLogger(**conf["comet"])
-    hparams = {
+
+    # search structure
+    conv_layers_grid = [[
+        (1, 15, 4, 2, 1),
+        (15, 50, 4, 2, 1),
+        (50, 100, 4, 2, 1)
+    ], [
+        (1, 10, 4, 2, 1),
+        (10, 20, 4, 2, 1),
+        (20, 50, 4, 2, 1),
+        (50, 100, 4, 2, 1)
+    ]]
+
+    # validate conv layers
+    for conv_layers in conv_layers_grid:
+        dim = validate_conv(32, conv_layers)
+        if not dim:
+            raise RuntimeError("Conv layers not aligned.")
+
+    # search hparams
+    hparams_grid = {
         "dim": 32,
-        "vector_length": 128,
+        "vector_length": [128, 64],
         "normal_mean": 0,
         "normal_sigma": 0.05,
-        "lr": 1e-3,
-        "batch_size": 128,
-        "threshold": 0.3
+        "lr": [1e-3, 5e-4, 5e-3],
+        "batch_size": [128, 256],
+        "threshold": 0.5,
+        "conv_layers": conv_layers_grid
     }
-    model = DenoisingAutoEncoder(**conf["data"], hparams=hparams)
-    # model = DenoisingAutoEncoder(hparams=hparams, data_path='voxel.npz', array_name="arr_0")
-    trainer = Trainer(gpus=1, logger=comet_logger)
-    trainer.fit(model)
+
+    ckpt_cb = ModelCheckpoint(
+        filepath="".join(["ckpt/", datetime.datetime.now().isoformat(), "/{epoch}"]),
+        save_top_k=-1,
+        period=5
+    )
+
+    search_params = list(searcher(hparams_grid))
+    for idx, hparams in enumerate(search_params):
+        print(f"Progress: {idx}/{len(search_params)}")
+        print("Searching hparams: ", hparams)
+        comet_logger = CometLogger(**conf["comet"])
+        model = DenoisingAutoEncoder(**conf["data"], hparams=hparams)
+        # model = DenoisingAutoEncoder(hparams=hparams, data_path='voxel.npz', array_name="arr_0")
+        trainer = Trainer(gpus=1, logger=comet_logger, max_epochs=20, checkpoint_callback=ckpt_cb,
+                          num_sanity_val_steps=1, check_val_every_n_epoch=5)
+        trainer.fit(model)
+        trainer.test(model)
