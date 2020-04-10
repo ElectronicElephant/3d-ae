@@ -56,8 +56,19 @@ class DenoisingAutoEncoder(pl.LightningModule):
               for layer in layers)
         )
 
-        self.fc1 = nn.Linear(pow(self.conv_size, 3) * self.conv_channel, self.vector_length)
-        self.fc2 = nn.Linear(self.vector_length, pow(self.conv_size, 3) * self.conv_channel)
+        self.mu = nn.Sequential(
+            nn.Linear(pow(self.conv_size, 3) * self.conv_channel, self.vector_length),
+            nn.LeakyReLU()
+        )
+        self.log_var = nn.Sequential(
+            nn.Linear(pow(self.conv_size, 3) * self.conv_channel, self.vector_length),
+            nn.LeakyReLU()
+        )
+
+        self.fc_decoder = nn.Sequential(
+            nn.Linear(self.vector_length, pow(self.conv_size, 3) * self.conv_channel),
+            nn.LeakyReLU()
+        )
 
         self.decoder = nn.Sequential(
             *(layer for layers in ((
@@ -73,21 +84,44 @@ class DenoisingAutoEncoder(pl.LightningModule):
         self.train_dataset = NumpyVoxelDataset(data_path, self.dim, array_name)
         self.val_dataset = PickerDataset(self.train_dataset, ids=[10, 513, 2013, 10403, 20303, 40013])
 
+    @staticmethod
+    def reparameterize(mu, log_var):
+        std = torch.exp(0.5*log_var)
+        eps = torch.randn_like(std)
+        return mu + eps*std
+
+    def forward_encoder(self, x):
+        x = self.encoder(x)
+        x = x.flatten(1)
+        mu, log_var = self.mu(x), self.log_var(x)
+        return mu, log_var
+
+    def forward_decoder(self, x):
+        x = self.fc_decoder(x)
+        x = x.view(-1, self.conv_channel, *([self.conv_size] * 3))
+        recon = self.decoder(x)
+        return recon
+
+    def forward(self, x):
+        mu, log_var = self.forward_encoder(x)
+        hidden = self.reparameterize(mu, log_var)
+        recon = self.forward_decoder(hidden)
+        return recon, mu, log_var
+
     def prepare_data(self):
         self.logger.experiment.set_model_graph("\n".join((str(layer) for layer in (
             self.encoder,
-            self.fc1,
-            self.fc2,
+            self.mu,
+            self.log_var,
+            self.fc_decoder,
             self.decoder
         ))))
 
-    def forward(self, x):
-        feature = self.encoder(x)
-        z = self.fc1(feature.flatten(1))
-        feature2 = F.leaky_relu(self.fc2(z))
-        feature2 = feature2.view(-1, self.conv_channel, *([self.conv_size] * 3))
-        recon_x = self.decoder(feature2)
-        return recon_x, z
+    @staticmethod
+    def loss(recon, x, mu, log_var):
+        bce = F.binary_cross_entropy(recon, x, reduction='sum', weight=None)
+        kld = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp())
+        return bce + kld
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset,
@@ -107,7 +141,8 @@ class DenoisingAutoEncoder(pl.LightningModule):
         #                        lr=0.001, momentum=0.99, weight_decay=0.0005)
         return torch.optim.Adam(self.parameters(), lr=self.lr)
 
-    def _step(self, image: FloatTensor, noise: bool = True) -> Tuple[FloatTensor, FloatTensor]:
+    def _step(self, image: FloatTensor, noise: bool = True)\
+            -> Tuple[FloatTensor, FloatTensor, FloatTensor, FloatTensor]:
         if noise:
             # noinspection PyArgumentList
             gauss = FloatTensor(*image.shape).to(image.device).normal_(mean=self.normal_mean, std=self.normal_sigma)
@@ -116,23 +151,23 @@ class DenoisingAutoEncoder(pl.LightningModule):
             noised = image
 
         # TODO: Check Shape
-        recon, _ = self(noised)
+        recon, mu, log_var = self(noised)
 
-        return image, recon
+        return image, recon, mu, log_var
 
     def training_step(self, batch, batch_idx):
-        image, recon = self._step(batch)
+        image, recon, mu, log_var = self._step(batch)
 
-        loss = F.binary_cross_entropy(recon, image, reduction='mean', weight=None)
+        loss = self.loss(recon, image, mu, log_var)
 
         _max = recon.max()
         logs = {'loss': loss, 'max': _max}
         return {**logs, "log": logs}
 
     def validation_step(self, batch, batch_idx):
-        image, recon = self._step(batch, noise=False)
+        image, recon, mu, log_var = self._step(batch, noise=False)
 
-        loss = F.binary_cross_entropy(recon, image, reduction='mean', weight=None)
+        loss = self.loss(recon, image, mu, log_var)
 
         srcs = image.detach().cpu().numpy()
         dests = recon.detach().cpu().numpy()
@@ -148,7 +183,7 @@ class DenoisingAutoEncoder(pl.LightningModule):
         return {**logs, "log": logs}
 
     def test_step(self, batch, batch_idx):
-        image, recon = self._step(batch, noise=False)
+        image, recon, _, _ = self._step(batch, noise=False)
 
         dests = recon.detach().cpu().numpy()
 
@@ -172,11 +207,6 @@ if __name__ == '__main__':
         (1, 15, 4, 2, 1),
         (15, 50, 4, 2, 1),
         (50, 100, 4, 2, 1)
-    ], [
-        (1, 10, 4, 2, 1),
-        (10, 20, 4, 2, 1),
-        (20, 50, 4, 2, 1),
-        (50, 100, 4, 2, 1)
     ]]
 
     # validate conv layers
@@ -188,11 +218,11 @@ if __name__ == '__main__':
     # search hparams
     hparams_grid = {
         "dim": 32,
-        "vector_length": [128, 64],
+        "vector_length": 128,
         "normal_mean": 0,
         "normal_sigma": 0.05,
-        "lr": [1e-3, 5e-4, 5e-3],
-        "batch_size": [128, 256],
+        "lr": 1e-3,
+        "batch_size": 128,
         "threshold": 0.5,
         "conv_layers": conv_layers_grid
     }
@@ -211,7 +241,8 @@ if __name__ == '__main__':
             period=5
         )
 
-        trainer = Trainer(gpus=1, logger=comet_logger, max_epochs=20, checkpoint_callback=ckpt_cb,
+        print(f"Selecting gpus:{gpus}")
+        trainer = Trainer(gpus=gpus, logger=comet_logger, max_epochs=100, checkpoint_callback=ckpt_cb,
                           num_sanity_val_steps=1, check_val_every_n_epoch=5)
         trainer.fit(model)
         trainer.test(model)
