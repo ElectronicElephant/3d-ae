@@ -3,6 +3,7 @@ import json
 import os
 from argparse import Namespace
 from typing import Tuple
+from functools import reduce
 
 import matplotlib.pyplot as plt
 import pytorch_lightning as pl
@@ -121,7 +122,8 @@ class DenoisingAutoEncoder(pl.LightningModule):
     def loss(recon, x, mu, log_var):
         bce = F.binary_cross_entropy(recon, x, reduction='sum', weight=None)
         kld = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp())
-        return bce + kld
+        mean = (bce+kld)/reduce(lambda x, y: x*y, x.shape)
+        return mean
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset,
