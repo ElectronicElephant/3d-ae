@@ -4,8 +4,8 @@ import os
 from argparse import Namespace
 from typing import Tuple
 from functools import reduce
+import operator
 
-import matplotlib.pyplot as plt
 import pytorch_lightning as pl
 import torch
 from pytorch_lightning import Trainer
@@ -15,15 +15,14 @@ from torch import FloatTensor, nn
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 
-from data import NumpyVoxelDataset, PickerDataset
+from data import NumpyVoxelDataset
 from utils import get_free_gpu, searcher, validate_conv
-from visualizer import plot, plot_volume
 
 
 class DenoisingAutoEncoder(pl.LightningModule):
     logger: CometLogger
 
-    def __init__(self, hparams: dict, data_path: str, array_name: str):
+    def __init__(self, hparams: dict, train_set: Tuple[str, str], val_set: Tuple[str, str]):
         super().__init__()
 
         self.hparams = Namespace(**hparams)
@@ -33,8 +32,11 @@ class DenoisingAutoEncoder(pl.LightningModule):
         self.bs = self.hparams.batch_size
         self.normal_mean = self.hparams.normal_mean
         self.normal_sigma = self.hparams.normal_sigma
-        self.threshold = self.hparams.threshold
         self.conv_layers = self.hparams.conv_layers
+        self.bn = self.hparams.bn
+        self.elu = self.hparams.elu
+        self.kld_ratio = self.hparams.kld_ratio
+        self.weighted_loss = self.hparams.weighted_loss
 
         self.conv_size = validate_conv(self.dim, self.conv_layers)
         self.conv_channel = self.conv_layers[-1][1]
@@ -50,40 +52,41 @@ class DenoisingAutoEncoder(pl.LightningModule):
             #   nn.Conv3d(10, 20, 2, 2, 0),
             #   nn.LeakyRelu()
             # )
-            *(layer for layers in ((
-                nn.Conv3d(*conv_layer),
-                nn.LeakyReLU()
-            ) for conv_layer in self.conv_layers)
+            *(layer for layers in (
+                [nn.Conv3d(*conv_layer)] +
+                ([nn.BatchNorm3d(conv_layer[1])] if self.bn else []) +
+                [nn.ELU() if self.elu else nn.ReLU()]
+                for conv_layer in self.conv_layers)
               for layer in layers)
         )
 
         self.mu = nn.Sequential(
             nn.Linear(pow(self.conv_size, 3) * self.conv_channel, self.vector_length),
-            nn.LeakyReLU()
         )
         self.log_var = nn.Sequential(
             nn.Linear(pow(self.conv_size, 3) * self.conv_channel, self.vector_length),
-            nn.LeakyReLU()
         )
 
         self.fc_decoder = nn.Sequential(
             nn.Linear(self.vector_length, pow(self.conv_size, 3) * self.conv_channel),
-            nn.LeakyReLU()
+            nn.ELU() if self.elu else nn.ReLU()
         )
 
         self.decoder = nn.Sequential(
-            *(layer for layers in ((
-                nn.ConvTranspose3d(conv_layer[1], conv_layer[0], *conv_layer[2:]),
-                nn.LeakyReLU()
-            ) for conv_layer in self.conv_layers[:0:-1])
-              for layer in layers),
+            *(layer for layers in (
+                [nn.ConvTranspose3d(conv_layer[1], conv_layer[0], *conv_layer[2:])] +
+                ([nn.BatchNorm3d(conv_layer[0])] if self.bn else []) +
+                [nn.ELU() if self.elu else nn.ReLU()]
+                for conv_layer in self.conv_layers[:0:-1])
+            for layer in layers),
             nn.ConvTranspose3d(self.conv_layers[0][1], self.conv_layers[0][0], *self.conv_layers[0][2:]),
             nn.Sigmoid()
         )
 
         # Data
-        self.train_dataset = NumpyVoxelDataset(data_path, self.dim, array_name)
-        self.val_dataset = PickerDataset(self.train_dataset, ids=[10, 513, 2013, 10403, 20303, 40013])
+        self.train_dataset = NumpyVoxelDataset(train_set[0], self.dim, train_set[1])
+        self.val_dataset = NumpyVoxelDataset(val_set[0], self.dim, val_set[1])
+        # self.val_dataset = PickerDataset(self.train_dataset, ids=[10, 513, 2013, 10403, 20303, 40013])
 
     @staticmethod
     def reparameterize(mu, log_var):
@@ -118,25 +121,23 @@ class DenoisingAutoEncoder(pl.LightningModule):
             self.decoder
         ))))
 
-    @staticmethod
-    def loss(recon, x, mu, log_var):
-        bce = F.binary_cross_entropy(recon, x, reduction='sum', weight=None)
+    def loss(self, recon, x, mu, log_var):
+        bce = F.binary_cross_entropy(recon, x, reduction='sum', weight=x+0.1 if self.weighted_loss else None)
         kld = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp())
-        mean = (bce+kld)/reduce(lambda x, y: x*y, x.shape)
+        mean = (bce + self.kld_ratio * kld)/reduce(operator.mul, x.shape)
         return mean
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset,
                           batch_size=self.bs,
                           shuffle=True,
-                          num_workers=4,
                           pin_memory=True)
 
     def val_dataloader(self):
-        return DataLoader(self.val_dataset, batch_size=len(self.val_dataset), shuffle=False, pin_memory=True)
-
-    def test_dataloader(self):
-        return DataLoader(self.val_dataset, batch_size=len(self.val_dataset), shuffle=False)
+        return DataLoader(self.val_dataset,
+                          batch_size=self.bs,
+                          shuffle=False,
+                          pin_memory=True)
 
     def configure_optimizers(self):
         # return torch.optim.SGD(self.parameters(),
@@ -171,27 +172,13 @@ class DenoisingAutoEncoder(pl.LightningModule):
 
         loss = self.loss(recon, image, mu, log_var)
 
-        srcs = image.detach().cpu().numpy()
-        dests = recon.detach().cpu().numpy()
-
-        for idx, (src, dest) in enumerate(zip(srcs, dests)):
-            src.resize(([self.dim] * 3))
-            dest.resize(([self.dim] * 3))
-            plt.close()
-            plot(src, dest > self.threshold)
-            self.logger.experiment.log_figure(step=self.current_epoch, figure_name=f"figure_{idx}")
-
         logs = {"val_loss": loss}
+        return logs
+
+    def validation_epoch_end(self, outputs):
+        val_loss_mean = torch.stack([x['val_loss'] for x in outputs]).mean()
+        logs = {'val_loss': val_loss_mean}
         return {**logs, "log": logs}
-
-    def test_step(self, batch, batch_idx):
-        image, recon, _, _ = self._step(batch, noise=False)
-
-        dests = recon.detach().cpu().numpy()
-
-        for dest in dests:
-            html = plot_volume(dest)
-            self.logger.experiment.log_html(html)
 
 
 if __name__ == '__main__':
@@ -205,28 +192,39 @@ if __name__ == '__main__':
         conf = json.load(f)
 
     # search structure
-    conv_layers_grid = [[
+    conv_layers_grid = [
+    [
+        (1, 32, 8, 4, 2),
+        (32, 64, 4, 2, 1),
+        (64, 128, 4, 2, 1),
+        (128, 128, 4, 2, 1)
+    ], [
         (1, 15, 4, 2, 1),
-        (15, 50, 4, 2, 1),
-        (50, 100, 4, 2, 1)
+        (15, 30, 4, 2, 1),
+        (30, 50, 4, 2, 1),
+        (50, 100, 4, 2, 1),
+        (100, 100, 4, 2, 1),
     ]]
 
     # validate conv layers
     for conv_layers in conv_layers_grid:
-        dim = validate_conv(32, conv_layers)
+        dim = validate_conv(128, conv_layers)
         if not dim:
             raise RuntimeError("Conv layers not aligned.")
 
     # search hparams
     hparams_grid = {
-        "dim": 32,
+        "dim": 128,
         "vector_length": 128,
         "normal_mean": 0,
         "normal_sigma": 0.05,
-        "lr": 1e-3,
-        "batch_size": 128,
-        "threshold": 0.5,
-        "conv_layers": conv_layers_grid
+        "lr": 1e-4,
+        "batch_size": 64,
+        "conv_layers": conv_layers_grid,
+        "bn": False,
+        "elu": True,
+        "kld_ratio": [0.1, 1],
+        "weighted_loss": [True, False]
     }
 
     search_params = list(searcher(hparams_grid))
@@ -244,7 +242,6 @@ if __name__ == '__main__':
         )
 
         print(f"Selecting gpus:{gpus}")
-        trainer = Trainer(gpus=gpus, logger=comet_logger, max_epochs=100, checkpoint_callback=ckpt_cb,
+        trainer = Trainer(gpus=gpus, logger=comet_logger, max_epochs=80, checkpoint_callback=ckpt_cb,
                           num_sanity_val_steps=1, check_val_every_n_epoch=5)
         trainer.fit(model)
-        trainer.test(model)
