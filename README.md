@@ -1,4 +1,2 @@
 # 3d-ae
-3D AutoEncoders. Currently developping on DAE.
-
-We are switching the organization from `Pytorch-Semseg` to `Pytorch-Lightning`.
+3D AutoEncoders. Currently developing on DAE. Built with `Pytorch-Lightning` structure.
