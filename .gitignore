@@ -133,6 +133,9 @@ dmypy.json
 
 # checkpoints
 runs
+lightning_logs
+*.ckpt
 
 # Data
 *.npz
+tokens.json
