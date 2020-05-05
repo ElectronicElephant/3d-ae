@@ -1,10 +1,10 @@
 import datetime
 import json
+import operator
 import os
 from argparse import Namespace
-from typing import Tuple
 from functools import reduce
-import operator
+from typing import Tuple
 
 import pytorch_lightning as pl
 import torch
@@ -78,7 +78,7 @@ class DenoisingAutoEncoder(pl.LightningModule):
                 ([nn.BatchNorm3d(conv_layer[0])] if self.bn else []) +
                 [nn.ELU() if self.elu else nn.ReLU()]
                 for conv_layer in self.conv_layers[:0:-1])
-            for layer in layers),
+              for layer in layers),
             nn.ConvTranspose3d(self.conv_layers[0][1], self.conv_layers[0][0], *self.conv_layers[0][2:]),
             nn.Sigmoid()
         )
@@ -90,9 +90,9 @@ class DenoisingAutoEncoder(pl.LightningModule):
 
     @staticmethod
     def reparameterize(mu, log_var):
-        std = torch.exp(0.5*log_var)
+        std = torch.exp(0.5 * log_var)
         eps = torch.randn_like(std)
-        return mu + eps*std
+        return mu + eps * std
 
     def forward_encoder(self, x):
         x = self.encoder(x)
@@ -122,9 +122,9 @@ class DenoisingAutoEncoder(pl.LightningModule):
         ))))
 
     def loss(self, recon, x, mu, log_var):
-        bce = F.binary_cross_entropy(recon, x, reduction='sum', weight=x+0.1 if self.weighted_loss else None)
+        bce = F.binary_cross_entropy(recon, x, reduction='sum', weight=x + 0.1 if self.weighted_loss else None)
         kld = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp())
-        mean = (bce + self.kld_ratio * kld)/reduce(operator.mul, x.shape)
+        mean = (bce + self.kld_ratio * kld) / reduce(operator.mul, x.shape)
         return mean
 
     def train_dataloader(self):
@@ -144,7 +144,7 @@ class DenoisingAutoEncoder(pl.LightningModule):
         #                        lr=0.001, momentum=0.99, weight_decay=0.0005)
         return torch.optim.Adam(self.parameters(), lr=self.lr)
 
-    def _step(self, image: FloatTensor, noise: bool = True)\
+    def _step(self, image: FloatTensor, noise: bool = True) \
             -> Tuple[FloatTensor, FloatTensor, FloatTensor, FloatTensor]:
         if noise:
             # noinspection PyArgumentList
@@ -193,18 +193,20 @@ if __name__ == '__main__':
 
     # search structure
     conv_layers_grid = [
-    [
-        (1, 32, 8, 4, 2),
-        (32, 64, 4, 2, 1),
-        (64, 128, 4, 2, 1),
-        (128, 128, 4, 2, 1)
-    ], [
-        (1, 15, 4, 2, 1),
-        (15, 30, 4, 2, 1),
-        (30, 50, 4, 2, 1),
-        (50, 100, 4, 2, 1),
-        (100, 100, 4, 2, 1),
-    ]]
+        [
+            (1, 32, 8, 4, 2),
+            (32, 64, 4, 2, 1),
+            (64, 128, 4, 2, 1),
+            (128, 128, 4, 2, 1)
+        ],
+        # [
+        #     (1, 15, 4, 2, 1),
+        #     (15, 30, 4, 2, 1),
+        #     (30, 50, 4, 2, 1),
+        #     (50, 100, 4, 2, 1),
+        #     (100, 100, 4, 2, 1),
+        # ],
+    ]
 
     # validate conv layers
     for conv_layers in conv_layers_grid:
