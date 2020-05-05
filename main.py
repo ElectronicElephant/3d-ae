@@ -236,7 +236,7 @@ if __name__ == '__main__':
         # model = DenoisingAutoEncoder(hparams=hparams, data_path='voxel.npz', array_name="arr_0")
 
         ckpt_cb = ModelCheckpoint(
-            filepath="".join(["ckpt/", datetime.datetime.now().isoformat(), "/{epoch}"]),
+            filepath="".join(["ckpt/", datetime.datetime.now().isoformat().replace(':', '.'), "/{epoch}"]),
             save_top_k=-1,
             period=5
         )

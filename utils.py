@@ -11,7 +11,7 @@ class NoGpuAvailable(Exception):
 def get_free_gpu() -> int:
     try:
         return next(map(lambda x: x[0],
-                        filter(lambda x: x[1] < 30,
+                        filter(lambda x: x[1] < 150,
                                map(lambda x: (x[0], x[1]["mem_used"]),
                                    enumerate(nvgpu.gpu_info())))))
     except StopIteration:
