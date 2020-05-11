@@ -5,61 +5,51 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import torch
 from torch import FloatTensor
+import open3d as o3d
 
-ckpt = torch.load("epoch=74_11.ckpt", map_location=torch.device("cuda"))
+import random
+
+
+M = np.array([[0.80656762, -0.5868724, -0.07091862],
+              [0.3770505, 0.418344, 0.82632997],
+              [-0.45528188, -0.6932309, 0.55870326]])
+
+
+def PointCloud(points, colors=None):
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(points)
+    if colors is not None:
+        pcd.colors = o3d.utility.Vector3dVector(colors)
+    return pcd
+
+
+ckpt = torch.load("epoch=119.ckpt", map_location=torch.device("cuda"))
 hparams = ckpt.get("hparams")
 state_dict = ckpt.get("state_dict")
-model = DenoisingAutoEncoder(hparams=hparams, train_set=("val.npz", "arr_0"), val_set=("val.npz", "arr_0"))
+model = DenoisingAutoEncoder(hparams=hparams, train_set=("s2_train.npz", "filled_dense"), val_set=("s2_test.npz", "filled_dense"))
 model.load_state_dict(state_dict)
-voxels = np.load("test.npz")["arr_0"]
+# voxels = np.load("s2_test.npz")["filled_dense"]
+voxels = np.load("s2_train.npz")["filled_dense"]
 model.bs = 1
 model.freeze()
 
-"""
-voxel_list = []
-for i in [3,33,123, 223]:
-    print(i)
-    voxel = voxels[i]
+index = list(range(len(voxels)))
+random.shuffle(index)
 
-    output_voxel = model(FloatTensor([[voxel]]))
+for idx in index:
+    output_voxel = model(FloatTensor([[voxels[idx]]]))
+    out_voxel = output_voxel[0].numpy()[0][0]
 
-    out_voxel = output_voxel[0].numpy()[0][0].astype(bool)
+    out = (out_voxel > 0.5).astype(np.int)
+    out_coords = np.floor(np.array(np.nonzero(out))).T
+    voxel_coords = np.floor(np.array(np.nonzero(voxels[idx]))).T
 
-    voxel_list.append(out_voxel)
+    pcd = PointCloud(voxel_coords)
+    pcd.estimate_normals()
+    pcd.translate([0.6 * 128, 0, 0])
 
-np_out = np.stack(voxel_list)
-np.savez_compressed("output.npz", np_out)
-"""
-import binvox_rw
-output_voxel = model(FloatTensor([[voxels[33]]]))
-out_voxel = output_voxel[0].numpy()[0][0]
-# out_voxel = voxels[133]
-out_voxel[out_voxel>=0.3] = 1
-out_voxel[out_voxel<0.3] = 0
-out_voxel=out_voxel.astype(int)
-vox = binvox_rw.Voxels(out_voxel, [128,128,128], [0,0,0], 1, "xyz")
-vox.write(open("output.binvox", mode="wb"))
-# ---
-"""
-verts, faces, normals, values = measure.marching_cubes_lewiner(out_voxel, 0.1, step_size=1)
+    pcd2 = PointCloud(out_coords)
+    pcd2.estimate_normals()
+    pcd2.translate([-0.6 * 128, 0, 0])
 
-# Display resulting triangular mesh using Matplotlib. This can also be done
-# with mayavi (see skimage.measure.marching_cubes_lewiner docstring).
-fig = plt.figure(figsize=(10, 10))
-ax = fig.add_subplot(111, projection='3d')
-# Fancy indexing: `verts[faces]` to generate a collection of triangles
-mesh = Poly3DCollection(verts[faces])
-# mesh.set_edgecolor('k')
-ax.add_collection3d(mesh)
-
-ax.set_xlabel("x-axis")
-ax.set_ylabel("y-axis")
-ax.set_zlabel("z-axis")
-
-ax.set_xlim3d(0, 128)
-ax.set_ylim3d(0, 128)
-ax.set_zlim3d(0, 128)
-
-plt.tight_layout()
-plt.show()
-"""
+    o3d.visualization.draw_geometries([pcd, pcd2])
