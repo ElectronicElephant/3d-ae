@@ -1,3 +1,4 @@
+import json
 import os
 from functools import lru_cache
 from typing import List
@@ -5,6 +6,7 @@ from typing import List
 import numpy as np
 import torch
 from torch.utils import data
+from tqdm import tqdm
 
 
 # TODO: @LightQuantum: Rewrite the whole bunch of dataloader in shapenet format
@@ -86,3 +88,44 @@ class DAENumpyVoxelDataset(NumpyVoxelDataset):
         if self.clip:
             return (img + gauss).clip(self.low, self.high)
         return img + gauss
+
+
+class ShapeNetVoxelDataset(data.Dataset):
+    def __init__(self, data_path, json_name, dim, array_name=None):
+        self.data_path = data_path
+        self.array_name = array_name
+        self.dim = dim if isinstance(dim, tuple) else (dim, dim, dim)
+
+        # Dataset
+        if not os.path.exists(self.data_path):  # TODO: Move to config!
+            raise FileNotFoundError('File %s does not exist!' % self.data_path)
+
+        self.data = None
+        self.json_name = json_name
+        with open(os.path.join(self.data_path, self.json_name)) as f:
+            self.data = json.load(f)
+
+        assert self.data is not None
+
+        self.annos = {
+            k: list(self.data[self.array_name][k].keys())
+            for k in self.data[self.array_name]
+        }
+
+        self.samples = []
+        for (cat_id, item_ids) in self.annos.items():
+            for item_id in tqdm(item_ids):
+                dense = np.load(os.path.join(self.data_path, cat_id, item_id, 'voxel.npz'))['filled_dense']
+                if dense.shape[0] == self.dim[0] and dense.shape[1] == self.dim[1] and dense.shape[2] == self.dim[2]:
+                    pass
+                else:
+                    raise RuntimeError('Data shape not unified!')
+                self.samples.append(dense)
+
+    def __len__(self):
+        return len(self.samples)
+
+    @lru_cache(None)
+    def __getitem__(self, index) -> torch.FloatTensor:
+        # noinspection PyArgumentList
+        return torch.FloatTensor([self.samples[index].astype(np.float)])  # C, D, H, W

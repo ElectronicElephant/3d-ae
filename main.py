@@ -15,7 +15,7 @@ from torch import FloatTensor, nn
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
 
-from data import NumpyVoxelDataset
+from data import NumpyVoxelDataset, ShapeNetVoxelDataset
 from utils import get_free_gpu, searcher, validate_conv
 
 
@@ -84,9 +84,11 @@ class DenoisingAutoEncoder(pl.LightningModule):
         )
 
         # Data
-        self.train_dataset = NumpyVoxelDataset(train_set[0], self.dim, train_set[1])
-        self.val_dataset = NumpyVoxelDataset(val_set[0], self.dim, val_set[1])
+        # self.train_dataset = NumpyVoxelDataset(train_set[0], self.dim, train_set[1])
+        # self.val_dataset = NumpyVoxelDataset(val_set[0], self.dim, val_set[1])
         # self.val_dataset = PickerDataset(self.train_dataset, ids=[10, 513, 2013, 10403, 20303, 40013])
+        self.train_dataset = ShapeNetVoxelDataset('shapenetvoxel128', 'pix2mesh_splits_val05.json', 128, 'train')
+        self.val_dataset = ShapeNetVoxelDataset('shapenetvoxel128', 'pix2mesh_splits_val05.json', 128, 'test')
 
     @staticmethod
     def reparameterize(mu, log_var):
@@ -192,6 +194,7 @@ if __name__ == '__main__':
         conf = json.load(f)
 
     # search structure
+    # in_channels, out_channels, kernel_size, stride, padding
     conv_layers_grid = [
         [
             (1, 32, 8, 4, 2),
